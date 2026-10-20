@@ -37,6 +37,7 @@ let inlineMergeGap = 1
 let inlineTokenLimit = 4_000_000
 let pairingLimit = 200_000
 let pairingWindow = 50
+let sharedLineFilterThreshold = 2_000
 
 /// 所在的 Task 被取消時會提早結束，這時回傳的結果不完整，呼叫端應該丟棄。
 public func computeDiff(left: String, right: String, options: CompareOptions) -> DiffResult {
@@ -119,13 +120,24 @@ private func alignRows(_ l: Side, _ r: Side, _ options: CompareOptions) -> [Diff
     }
     let lIdx = l.keys.indices.filter { participates(l.keys[$0]) }
     let rIdx = r.keys.indices.filter { participates(r.keys[$0]) }
-    let diff = rIdx.map { r.keys[$0] }.difference(from: lIdx.map { l.keys[$0] })
-    var removed = Set<Int>()
-    var inserted = Set<Int>()
-    for change in diff {
+    // 大檔時先剔除只出現在一邊的行（它們不可能配成相同），避免兩邊差異很大時 diff 成本變成行數平方。
+    // 相同行數不變，但同分的對應方式可能不同，所以小檔維持原本的比對。
+    let lKeys = lIdx.map { l.keys[$0] }
+    let rKeys = rIdx.map { r.keys[$0] }
+    var lShared = Array(lKeys.indices)
+    var rShared = Array(rKeys.indices)
+    if lKeys.count + rKeys.count > sharedLineFilterThreshold {
+        let lKeySet = Set(lKeys)
+        let rKeySet = Set(rKeys)
+        lShared = lShared.filter { rKeySet.contains(lKeys[$0]) }
+        rShared = rShared.filter { lKeySet.contains(rKeys[$0]) }
+    }
+    var removed = Set(lKeys.indices).subtracting(lShared)
+    var inserted = Set(rKeys.indices).subtracting(rShared)
+    for change in rShared.map({ rKeys[$0] }).difference(from: lShared.map { lKeys[$0] }) {
         switch change {
-        case .remove(let offset, _, _): removed.insert(offset)
-        case .insert(let offset, _, _): inserted.insert(offset)
+        case .remove(let offset, _, _): removed.insert(lShared[offset])
+        case .insert(let offset, _, _): inserted.insert(rShared[offset])
         }
     }
 

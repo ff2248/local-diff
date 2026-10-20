@@ -71,3 +71,22 @@ private func diff(_ l: String, _ r: String, _ o: CompareOptions = CompareOptions
     let d = diff(base.joined(separator: "\n"), base.map { "    " + $0 }.joined(separator: "\n"))
     #expect(d.rows.allSatisfy { $0.kind == .modified })
 }
+
+@Test func oneSidedLinesInterleaved() {
+    let d = diff("a\nx\nb\ny\nc", "a\nb\nz\nc")
+    #expect(d.rows == [DiffRow(left: 0, right: 0, kind: .unchanged), DiffRow(left: 1, right: nil, kind: .deleted),
+                       DiffRow(left: 2, right: 1, kind: .unchanged), DiffRow(left: 3, right: nil, kind: .deleted),
+                       DiffRow(left: nil, right: 2, kind: .inserted), DiffRow(left: 4, right: 3, kind: .unchanged)])
+}
+
+@Test func tenThousandUnrelatedLinesAreFast() {
+    let l = (0..<10_000).map { "舊版第 \($0) 行" }.joined(separator: "\n")
+    let r = (0..<10_000).map { "new line \($0)" }.joined(separator: "\n")
+    let elapsed = ContinuousClock().measure { _ = diff(l, r) }
+    #expect(elapsed < .seconds(1))
+}
+
+@Test func smallInputsKeepOriginalMatching() {
+    let d = diff("y\nx\ny", "a\ny\nz")
+    #expect(d.rows.contains(DiffRow(left: 2, right: 1, kind: .unchanged)))
+}
