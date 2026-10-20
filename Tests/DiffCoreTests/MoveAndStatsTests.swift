@@ -86,3 +86,40 @@ private struct SplitMix64 {
     let stats = computeDiff(left: "甲乙丙丁戊己庚辛", right: "甲子丙寅戊己庚辛", options: CompareOptions()).stats
     #expect(stats.deletedCharacters == 2 && stats.insertedCharacters == 2)
 }
+
+@Test func indentedShortLinesAreNotMoved() {
+    let d = computeDiff(left: "func a() {\n    if x {\n            }\n}\nlet q = 1",
+                        right: "func a() {\n    if x {\n}\nlet q = 1\n                }", options: CompareOptions())
+    #expect(d.moves.isEmpty)
+}
+
+// 兩份各 4000 行、共用一組關鍵字但互不相關的程式碼
+@Test func largeUnrelatedInputsAreBounded() {
+    var rng = SplitMix64(seed: 3)
+    let words = ["func", "let", "var", "return", "if", "else", "self", "value", "items", "count",
+                 "index", "result", "map", "filter", "guard", "for", "in", "where"]
+    func codeLine() -> String {
+        String(repeating: " ", count: Int(rng.next() % 12))
+            + (0..<8).map { _ in words[Int(rng.next() % UInt64(words.count))] }.joined(separator: " ")
+    }
+    let l = (0..<4000).map { _ in codeLine() }.joined(separator: "\n")
+    let r = (0..<4000).map { _ in codeLine() }.joined(separator: "\n")
+    let elapsed = ContinuousClock().measure { _ = computeDiff(left: l, right: r, options: CompareOptions()) }
+    #expect(elapsed < .seconds(1))
+}
+
+// 20 行、每行 1500 字且都有修改，未取消時要做 20 次大型行內 diff
+@Test func cancelledDiffStopsEarly() async {
+    var rng = SplitMix64(seed: 11)
+    let pool = Array("的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過")
+    func pick() -> Character { pool[Int(rng.next() % UInt64(pool.count))] }
+    let leftLines = (0..<20).map { _ in String((0..<1500).map { _ in pick() }) }
+    let rightLines = leftLines.map { String($0.map { c in rng.next() % 3 == 0 ? pick() : c }) }
+    let l = leftLines.joined(separator: "\n")
+    let r = rightLines.joined(separator: "\n")
+    let full = ContinuousClock().measure { _ = computeDiff(left: l, right: r, options: CompareOptions()) }
+    let task = Task { computeDiff(left: l, right: r, options: CompareOptions()) }
+    task.cancel()
+    let cancelled = await ContinuousClock().measure { _ = await task.value }
+    #expect(cancelled < full / 3)
+}

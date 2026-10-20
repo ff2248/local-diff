@@ -2,10 +2,12 @@ let moveMinLength = 12
 let moveThreshold = 0.7
 
 func detectMoves(_ rows: [DiffRow], _ l: Side, _ r: Side) -> (rows: [DiffRow], moves: [MovePair]) {
-    let dels = rows.indices.filter { rows[$0].kind == .deleted && l.keys[rows[$0].left!].count >= moveMinLength }
-    let ins = rows.indices.filter { rows[$0].kind == .inserted && r.keys[rows[$0].right!].count >= moveMinLength }
+    func longEnough(_ key: String) -> Bool { key.count { !$0.isWhitespace } >= moveMinLength }
+    let dels = rows.indices.filter { rows[$0].kind == .deleted && longEnough(l.keys[rows[$0].left!]) }
+    let ins = rows.indices.filter { rows[$0].kind == .inserted && longEnough(r.keys[rows[$0].right!]) }
+    guard dels.count * ins.count <= pairingLimit else { return (rows, []) }
     var candidates: [(del: Int, ins: Int, score: Double)] = []
-    for d in dels {
+    for d in dels where !Task.isCancelled {
         for i in ins {
             let score = l.profiles[rows[d].left!].dice(r.profiles[rows[i].right!])
             if score >= moveThreshold { candidates.append((d, i, score)) }

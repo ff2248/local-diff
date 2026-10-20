@@ -35,7 +35,10 @@ public struct DiffResult: Sendable {
 let pairingThreshold = 0.3
 let inlineMergeGap = 1
 let inlineTokenLimit = 4_000_000
+let pairingLimit = 200_000
+let pairingWindow = 50
 
+/// 所在的 Task 被取消時會提早結束，這時回傳的結果不完整，呼叫端應該丟棄。
 public func computeDiff(left: String, right: String, options: CompareOptions) -> DiffResult {
     let l = Side(text: left, options: options)
     let r = Side(text: right, options: options)
@@ -46,6 +49,7 @@ public func computeDiff(left: String, right: String, options: CompareOptions) ->
     var deletedCount = 0
     var insertedCount = 0
     for row in rows {
+        if Task.isCancelled { break }
         switch row.kind {
         case .unchanged:
             break
@@ -67,7 +71,7 @@ public func computeDiff(left: String, right: String, options: CompareOptions) ->
             break
         }
     }
-    for move in moves {
+    for move in moves where !Task.isCancelled {
         lh.append(Highlight(range: l.lines[move.left], kind: .lineMoved))
         rh.append(Highlight(range: r.lines[move.right], kind: .lineMoved))
         let inline = inlineDiff(l, move.left, r, move.right, options)
@@ -168,8 +172,9 @@ private func pairHunk(_ dels: [Int], _ ins: [Int], _ l: Side, _ r: Side) -> [Dif
     var rows: [DiffRow] = []
     var from = 0
     for d in dels {
+        if Task.isCancelled { break }
         var best: (index: Int, score: Double)?
-        for k in from..<ins.count {
+        for k in from..<min(ins.count, from + pairingWindow) {
             let score = l.profiles[d].dice(r.profiles[ins[k]])
             if score >= pairingThreshold, score > (best?.score ?? -1) { best = (k, score) }
         }

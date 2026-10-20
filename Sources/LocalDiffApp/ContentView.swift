@@ -1,14 +1,8 @@
 import DiffCore
+import DiffEditor
 import SwiftUI
 
-struct Comparison {
-    let generation: Int
-    let left: String
-    let right: String
-    let result: DiffResult
-}
-
-private struct Input: Equatable {
+private struct Input: Equatable, Sendable {
     let left: String
     let right: String
     let options: CompareOptions
@@ -50,13 +44,16 @@ struct ContentView: View {
             let input = Input(left: left, right: right, options: options)
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
-            let result = await Task.detached {
-                computeDiff(left: input.left, right: input.right, options: input.options)
-            }.value
+            let result = await compare(input)
             guard !Task.isCancelled else { return }
             generation += 1
             comparison = Comparison(generation: generation, left: input.left, right: input.right, result: result)
         }
+    }
+
+    @concurrent
+    private nonisolated func compare(_ input: Input) async -> DiffResult {
+        computeDiff(left: input.left, right: input.right, options: input.options)
     }
 
     private func header(_ title: String) -> some View {

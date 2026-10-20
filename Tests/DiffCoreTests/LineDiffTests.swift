@@ -65,3 +65,9 @@ private func diff(_ l: String, _ r: String, _ o: CompareOptions = CompareOptions
     #expect(diff("a b", "ab", CompareOptions(ignoreWhitespace: true)).leftHighlights.isEmpty)
     #expect(diff("你好，世界", "你好,世界", CompareOptions(ignoreWidth: true)).leftHighlights.isEmpty)
 }
+
+@Test func reindentedBlockStillPairs() {
+    let base = (0..<1000).map { "let value\($0) = compute(items[\($0)], factor: \($0 % 7))" }
+    let d = diff(base.joined(separator: "\n"), base.map { "    " + $0 }.joined(separator: "\n"))
+    #expect(d.rows.allSatisfy { $0.kind == .modified })
+}
