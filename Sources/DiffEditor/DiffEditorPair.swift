@@ -154,8 +154,10 @@ public struct DiffEditorPair: NSViewRepresentable {
         }
 
         private func equalizeHeights() {
-            let height = max(leftView.contentHeight, rightView.contentHeight,
-                             leftScroll.contentSize.height, rightScroll.contentSize.height)
+            let content = max(leftView.contentHeight, rightView.contentHeight)
+            leftView.alignedContentHeight = content
+            rightView.alignedContentHeight = content
+            let height = max(content, leftScroll.contentSize.height, rightScroll.contentSize.height)
             leftView.setMinimumHeight(height)
             rightView.setMinimumHeight(height)
         }
@@ -207,6 +209,8 @@ final class DiffTextView: NSTextView {
     // TextKit 1 不套用第一段的 paragraphSpacingBefore，第一行的補白改由 textContainerOrigin 往下推。
     private var topPadding: CGFloat = 0
     var onCommandClick: ((DiffTextView, Int) -> Bool)?
+    /// 兩側內容較高者的高度，文末補白只畫到這裡。
+    var alignedContentHeight: CGFloat = 0
 
     init(side: Side) {
         self.side = side
@@ -234,7 +238,11 @@ final class DiffTextView: NSTextView {
         writingToolsBehavior = .none
         inlinePredictionType = .no
 
-        font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        font = Theme.font
+        textColor = Theme.text
+        backgroundColor = Theme.background
+        defaultParagraphStyle = Theme.paragraphStyle
+        typingAttributes = Theme.textAttributes
         textContainerInset = NSSize(width: 8, height: 8)
         isVerticallyResizable = true
         isHorizontallyResizable = false
@@ -306,12 +314,12 @@ final class DiffTextView: NSTextView {
         let full = NSRange(location: 0, length: storage.length)
         guard shouldChangeText(in: full, replacementString: text) else { return }
         storage.replaceCharacters(in: full, with: text)
-        storage.setAttributes([.font: font as Any, .foregroundColor: NSColor.textColor],
-                              range: NSRange(location: 0, length: storage.length))
+        storage.setAttributes(Theme.textAttributes, range: NSRange(location: 0, length: storage.length))
         didChangeText()
         lineHighlights = []
         paddingByLocation = [:]
         topPadding = 0
+        alignedContentHeight = 0
         invalidateTextContainerOrigin()
     }
 
@@ -339,7 +347,7 @@ final class DiffTextView: NSTextView {
     func resetPadding(lines: [NSRange]) -> [CGFloat] {
         guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return [] }
         storage.beginEditing()
-        storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.paragraphStyle, value: Theme.paragraphStyle, range: NSRange(location: 0, length: storage.length))
         storage.endEditing()
         paddingByLocation = [:]
         topPadding = 0
@@ -355,7 +363,7 @@ final class DiffTextView: NSTextView {
         topPadding = lines.isEmpty ? 0 : padding[0]
         invalidateTextContainerOrigin()
         for (i, line) in lines.enumerated().dropFirst() where padding[i] > 0 {
-            let style = NSMutableParagraphStyle()
+            let style = Theme.paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
             style.paragraphSpacingBefore = padding[i]
             storage.addAttribute(.paragraphStyle, value: style, range: ns.lineRange(for: line))
             paddingByLocation[line.location] = padding[i]
@@ -371,33 +379,47 @@ final class DiffTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard let layout = layoutManager, let container = textContainer else { return }
-        let origin = textContainerOrigin.y
+        Theme.filler.setFill()
+        fillerRects().forEach { $0.fill() }
+        for (box, kind) in highlightedLineRects() where box.intersects(rect) {
+            color(for: kind).setFill()
+            box.fill()
+        }
+    }
 
+    /// 對齊用的補白區塊，座標是文字框本身的座標系。
+    func fillerRects() -> [NSRect] {
+        guard let layout = layoutManager, let container = textContainer else { return [] }
+        let origin = textContainerOrigin.y
         let length = (string as NSString).length
-        NSColor.secondaryLabelColor.withAlphaComponent(0.06).setFill()
+        var rects: [NSRect] = []
         if topPadding > 0 {
-            NSRect(x: 0, y: textContainerInset.height, width: bounds.width, height: topPadding).fill()
+            rects.append(NSRect(x: 0, y: textContainerInset.height, width: bounds.width, height: topPadding))
         }
         for (location, pad) in paddingByLocation where location <= length {
             let top = fragmentsRect(for: NSRange(location: location, length: 0)).minY + origin
-            NSRect(x: 0, y: top, width: bounds.width, height: pad).fill()
+            rects.append(NSRect(x: 0, y: top, width: bounds.width, height: pad))
         }
         let end = layout.usedRect(for: container).maxY + origin
-        if end < bounds.maxY - textContainerInset.height {
-            NSRect(x: 0, y: end, width: bounds.width, height: bounds.maxY - textContainerInset.height - end).fill()
+        let alignedEnd = alignedContentHeight - textContainerInset.height
+        if end < alignedEnd {
+            rects.append(NSRect(x: 0, y: end, width: bounds.width, height: alignedEnd - end))
         }
+        return rects
+    }
 
-        for h in lineHighlights where NSMaxRange(h.range) <= length {
+    /// 有整行底色的行（不含補白），座標是文字框本身的座標系。
+    func highlightedLineRects() -> [(NSRect, HighlightKind)] {
+        let origin = textContainerOrigin.y
+        let length = (string as NSString).length
+        return lineHighlights.filter { NSMaxRange($0.range) <= length }.map { h in
             var box = fragmentsRect(for: h.range)
             let pad = paddingByLocation[h.range.location] ?? 0
             box.origin.y += origin + pad
             box.size.height -= pad
             box.origin.x = 0
             box.size.width = bounds.width
-            guard box.intersects(rect) else { continue }
-            color(for: h.kind).setFill()
-            box.fill()
+            return (box, h.kind)
         }
     }
 
@@ -413,12 +435,12 @@ final class DiffTextView: NSTextView {
 
     private func color(for kind: HighlightKind) -> NSColor {
         switch kind {
-        case .lineDeleted: .systemRed.withAlphaComponent(0.12)
-        case .lineInserted: .systemGreen.withAlphaComponent(0.12)
-        case .lineModified: (side == .left ? NSColor.systemRed : .systemGreen).withAlphaComponent(0.12)
-        case .lineMoved: .systemPurple.withAlphaComponent(0.15)
-        case .textDeleted: .systemRed.withAlphaComponent(0.4)
-        case .textInserted: .systemGreen.withAlphaComponent(0.4)
+        case .lineDeleted: Theme.deletedLine
+        case .lineInserted: Theme.insertedLine
+        case .lineModified: side == .left ? Theme.deletedLine : Theme.insertedLine
+        case .lineMoved: Theme.movedLine
+        case .textDeleted: Theme.deletedWord
+        case .textInserted: Theme.insertedWord
         }
     }
 }
