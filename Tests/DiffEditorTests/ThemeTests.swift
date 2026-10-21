@@ -44,8 +44,8 @@ struct ThemeTests {
         let f = EditorFixture()
         let result = f.load("abc\n中文內容\nabc\n😀", "abc")
         let tops = result.leftLines.map { f.top(f.left, $0) }
-        #expect(zip(tops, tops.dropFirst()).allSatisfy { $1 - $0 == Theme.lineHeight })
-        #expect(Theme.lineHeight == 20)
+        #expect(zip(tops, tops.dropFirst()).allSatisfy { $1 - $0 == EditorStyle.default.lineHeight })
+        #expect(EditorStyle.default.lineHeight == 20)
     }
 
     @Test func noFillerBelowEqualLengthTexts() {
@@ -58,7 +58,7 @@ struct ThemeTests {
         let f = EditorFixture()
         f.load("a\nb", "a\nb\nc\nd")
         let filler = try! #require(f.left.fillerRects().first)
-        #expect(f.left.fillerRects().count == 1 && filler.height == 2 * Theme.lineHeight)
+        #expect(f.left.fillerRects().count == 1 && filler.height == 2 * EditorStyle.default.lineHeight)
     }
 
     @Test func wholeEditorRendersBothSides() {
@@ -87,6 +87,6 @@ struct ThemeTests {
         f.left.setSelectedRange(NSRange(location: 3, length: 0))
         f.left.insertText("\n中文", replacementRange: f.left.selectedRange())
         let lines = [NSRange(location: 0, length: 3), NSRange(location: 4, length: 2)]
-        #expect(f.top(f.left, lines[1]) - f.top(f.left, lines[0]) == Theme.lineHeight)
+        #expect(f.top(f.left, lines[1]) - f.top(f.left, lines[0]) == EditorStyle.default.lineHeight)
     }
 }

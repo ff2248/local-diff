@@ -11,39 +11,49 @@ private struct Input: Equatable, Sendable {
 struct ContentView: View {
     @State private var left = ""
     @State private var right = ""
-    @State private var options = CompareOptions()
-    @State private var collapseUnchanged = false
+    @State private var options = LaunchDefaults.options
+    @State private var collapseUnchanged = LaunchDefaults.showOnlyChanges
+    @AppStorage(SettingsKey.language) private var language = AppLanguage.default
+    @AppStorage(SettingsKey.appearance) private var appearance = Appearance.system
+    @AppStorage(SettingsKey.fontSize) private var fontSize = Double(EditorStyle.default.fontSize)
+    @AppStorage(SettingsKey.wrapsLines) private var wrapsLines = true
+    @AppStorage(SettingsKey.contextLines) private var contextLines = 3
     @State private var comparison: Comparison?
     @State private var generation = 0
 
     var body: some View {
+        let strings = Strings.for(language)
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                header("舊版")
+                header(strings.before)
                 Divider()
-                header("新版")
+                header(strings.after)
             }
             .fixedSize(horizontal: false, vertical: true)
             Divider()
-            DiffEditorPair(left: $left, right: $right, comparison: comparison, collapseUnchanged: collapseUnchanged)
+            DiffEditorPair(left: $left, right: $right, comparison: comparison, collapseUnchanged: collapseUnchanged,
+                           language: language, style: EditorStyle(fontSize: fontSize, wrapsLines: wrapsLines),
+                           contextLines: contextLines)
             Divider()
-            StatsBar(stats: comparison?.result.stats)
+            StatsBar(stats: comparison?.result.stats, strings: strings)
         }
         .toolbar {
             ToolbarItemGroup {
-                Toggle("只顯示差異", isOn: $collapseUnchanged)
+                Toggle(strings.showOnlyChanges, isOn: $collapseUnchanged)
             }
             ToolbarItemGroup {
-                Toggle("忽略空白", isOn: $options.ignoreWhitespace)
-                Toggle("忽略空行", isOn: $options.ignoreBlankLines)
-                Toggle("忽略大小寫", isOn: $options.ignoreCase)
-                Toggle("忽略全形／半形", isOn: $options.ignoreWidth)
+                Toggle(strings.ignoreWhitespace, isOn: $options.ignoreWhitespace)
+                Toggle(strings.ignoreBlankLines, isOn: $options.ignoreBlankLines)
+                Toggle(strings.ignoreCase, isOn: $options.ignoreCase)
+                Toggle(strings.ignoreWidth, isOn: $options.ignoreWidth)
             }
             ToolbarItemGroup {
-                Button("對調") { (left, right) = (right, left) }
-                Button("清空") { left = ""; right = "" }
+                Button(strings.swap) { (left, right) = (right, left) }
+                Button(strings.clear) { left = ""; right = "" }
             }
         }
+        .onAppear { appearance.apply() }
+        .onChange(of: appearance) { appearance.apply() }
         .task(id: Input(left: left, right: right, options: options)) {
             let input = Input(left: left, right: right, options: options)
             try? await Task.sleep(for: .milliseconds(150))
@@ -61,7 +71,7 @@ struct ContentView: View {
     }
 
     private func header(_ title: String) -> some View {
-        Text(title)
+        Text(verbatim: title)
             .font(.headline)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
@@ -71,6 +81,7 @@ struct ContentView: View {
 
 private struct StatsBar: View {
     let stats: DiffStats?
+    let strings: Strings
 
     var body: some View {
         HStack {
@@ -78,9 +89,9 @@ private struct StatsBar: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let stats {
                 HStack(spacing: 16) {
-                    Text("新增 \(stats.insertedCharacters.formatted()) 字").foregroundStyle(.green)
-                    Text("刪除 \(stats.deletedCharacters.formatted()) 字").foregroundStyle(.red)
-                    Text("相似度 \(String(format: "%.1f", stats.similarity * 100))%")
+                    Text(verbatim: strings.added(stats.insertedCharacters.formatted())).foregroundStyle(.green)
+                    Text(verbatim: strings.removed(stats.deletedCharacters.formatted())).foregroundStyle(.red)
+                    Text(verbatim: strings.similarity(String(format: "%.1f%%", stats.similarity * 100)))
                 }
             }
             side(stats?.right)
@@ -95,10 +106,10 @@ private struct StatsBar: View {
     private func side(_ s: TextStats?) -> some View {
         if let s {
             HStack(spacing: 12) {
-                Text("字元 \(s.characters.formatted())")
-                Text("中文字 \(s.cjkCharacters.formatted())")
-                Text("行 \(s.lines.formatted())")
-                Text("估計 token \(s.estimatedTokens.formatted())")
+                Text(verbatim: "\(strings.characters) \(s.characters.formatted())")
+                Text(verbatim: "\(strings.cjkCharacters) \(s.cjkCharacters.formatted())")
+                Text(verbatim: "\(strings.lines) \(s.lines.formatted())")
+                Text(verbatim: "\(strings.estimatedTokens) \(s.estimatedTokens.formatted())")
             }
             .foregroundStyle(.secondary)
         }

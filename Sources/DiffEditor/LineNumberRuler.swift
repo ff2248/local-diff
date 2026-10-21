@@ -2,11 +2,6 @@ import AppKit
 import DiffCore
 
 final class LineNumberRuler: NSRulerView {
-    private let attributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-        .foregroundColor: Theme.lineNumber,
-    ]
-
     init(textView: DiffTextView, scrollView: NSScrollView) {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
@@ -15,10 +10,16 @@ final class LineNumberRuler: NSRulerView {
 
     required init(coder: NSCoder) { fatalError() }
 
-    func updateThickness(lineCount: Int) {
-        let digits = String(max(lineCount, 1)).count
-        let thickness = max(36, CGFloat(digits) * 7 + 16)
+    /// 依行號位數與目前字級的數字寬度調整欄寬。
+    func updateThickness(lineCount: Int, fontSize: CGFloat) {
+        let digits = CGFloat(String(max(lineCount, 1)).count)
+        let digitWidth = ("0" as NSString).size(withAttributes: [.font: Self.font(fontSize)]).width
+        let thickness = max(36, (digits * digitWidth).rounded(.up) + 16)
         if ruleThickness != thickness { ruleThickness = thickness }
+    }
+
+    static func font(_ fontSize: CGFloat) -> NSFont {
+        .monospacedDigitSystemFont(ofSize: fontSize - 2, weight: .regular)
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
@@ -33,11 +34,15 @@ final class LineNumberRuler: NSRulerView {
         }
         Theme.hunkNumber.setFill()
         for marker in textView.foldMarkerRects(in: textView.visibleRect) { band(convert(marker.rect, from: textView)).fill() }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Self.font(textView.style.fontSize),
+            .foregroundColor: Theme.lineNumber,
+        ]
         for (number, y) in textView.lineNumberPositions(in: textView.visibleRect) {
             let label = String(number) as NSString
             let size = label.size(withAttributes: attributes)
             let point = convert(NSPoint(x: 0, y: y), from: textView)
-            label.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: point.y + (Theme.lineHeight - size.height) / 2),
+            label.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: point.y + (textView.style.lineHeight - size.height) / 2),
                        withAttributes: attributes)
         }
     }

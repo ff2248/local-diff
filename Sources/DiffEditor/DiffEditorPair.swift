@@ -17,16 +17,26 @@ public struct Comparison: Sendable {
 }
 
 public struct DiffEditorPair: NSViewRepresentable {
+    public static let contextLineRange = 0...10
+
     @Binding var left: String
     @Binding var right: String
     let comparison: Comparison?
     let collapseUnchanged: Bool
+    let language: AppLanguage
+    let style: EditorStyle
+    let contextLines: Int
 
-    public init(left: Binding<String>, right: Binding<String>, comparison: Comparison?, collapseUnchanged: Bool = false) {
+    public init(left: Binding<String>, right: Binding<String>, comparison: Comparison?,
+                collapseUnchanged: Bool = false, language: AppLanguage = .default,
+                style: EditorStyle = .default, contextLines: Int = 3) {
         _left = left
         _right = right
         self.comparison = comparison
         self.collapseUnchanged = collapseUnchanged
+        self.language = language
+        self.style = style
+        self.contextLines = contextLines
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -51,6 +61,9 @@ public struct DiffEditorPair: NSViewRepresentable {
             c.appliedGeneration = comparison.generation
         }
         c.setCollapseUnchanged(collapseUnchanged)
+        c.setLanguage(language)
+        c.setStyle(style)
+        c.setContextLines(contextLines)
     }
 
     @MainActor
@@ -67,6 +80,9 @@ public struct DiffEditorPair: NSViewRepresentable {
         private var alignScheduled = false
         private var syncingScroll = false
         private(set) var collapseUnchanged = false
+        private var language = AppLanguage.default
+        private var style = EditorStyle.default
+        private var contextLines = 3
         /// 使用者展開過的摺疊區（以左側行號範圍記錄），重新比對後與它重疊的區段維持展開。
         private var expandedRegions: [Range<Int>] = []
 
@@ -127,7 +143,7 @@ public struct DiffEditorPair: NSViewRepresentable {
             guard collapseUnchanged else { return }
             var leftFolds: [DiffTextView.Fold] = []
             var rightFolds: [DiffTextView.Fold] = []
-            for rows in collapsibleRegions(rows: result.rows) {
+            for rows in collapsibleRegions(rows: result.rows, context: contextLines) {
                 let lefts = result.rows[rows].compactMap(\.left)
                 let rights = result.rows[rows].compactMap(\.right)
                 let region = lefts.first!..<(lefts.last! + 1)
@@ -157,9 +173,43 @@ public struct DiffEditorPair: NSViewRepresentable {
             let result = comparison.result
             leftView.apply(result.leftHighlights)
             rightView.apply(result.rightHighlights)
-            leftView.applyTooltips(result.moves.map { (result.leftLines[$0.left], "已移到新版第 \($0.right + 1) 行，⌘ 點一下跳過去") })
-            rightView.applyTooltips(result.moves.map { (result.rightLines[$0.right], "從舊版第 \($0.left + 1) 行移來，⌘ 點一下跳過去") })
+            applyTooltips()
             align()
+        }
+
+        func setLanguage(_ newLanguage: AppLanguage) {
+            guard newLanguage != language else { return }
+            language = newLanguage
+            for view in [leftView, rightView] {
+                view.strings = .for(newLanguage)
+                view.needsDisplay = true
+            }
+            applyTooltips()
+        }
+
+        func setStyle(_ newStyle: EditorStyle) {
+            guard newStyle != style else { return }
+            style = newStyle
+            for (view, scroll) in [(leftView, leftScroll), (rightView, rightScroll)] {
+                view.style = newStyle
+                scroll.hasHorizontalScroller = !newStyle.wrapsLines
+            }
+            align()
+        }
+
+        func setContextLines(_ requested: Int) {
+            let lines = min(max(requested, DiffEditorPair.contextLineRange.lowerBound), DiffEditorPair.contextLineRange.upperBound)
+            guard lines != contextLines else { return }
+            contextLines = lines
+            align()
+        }
+
+        private func applyTooltips() {
+            guard let comparison, leftView.string == comparison.left, rightView.string == comparison.right else { return }
+            let result = comparison.result
+            let strings = Strings.for(language)
+            leftView.applyTooltips(result.moves.map { (result.leftLines[$0.left], strings.movedTo($0.right + 1)) })
+            rightView.applyTooltips(result.moves.map { (result.rightLines[$0.right], strings.movedFrom($0.left + 1)) })
         }
 
         private func align() {
@@ -172,7 +222,7 @@ public struct DiffEditorPair: NSViewRepresentable {
             let padding = alignmentPadding(rows: result.rows, leftHeights: leftHeights, rightHeights: rightHeights)
             leftView.applyPadding(padding.left, lines: result.leftLines)
             rightView.applyPadding(padding.right, lines: result.rightLines)
-            equalizeHeights()
+            equalizeSizes()
             refreshRuler(of: leftView)
             refreshRuler(of: rightView)
         }
@@ -200,21 +250,27 @@ public struct DiffEditorPair: NSViewRepresentable {
         private func refreshRuler(of view: DiffTextView) {
             let scroll = view === leftView ? leftScroll : rightScroll
             guard let ruler = scroll.verticalRulerView as? LineNumberRuler else { return }
-            ruler.updateThickness(lineCount: view.lineCount)
+            ruler.updateThickness(lineCount: view.lineCount, fontSize: view.style.fontSize)
             ruler.needsDisplay = true
         }
 
-        private func equalizeHeights() {
+        /// 兩側文字框等高。不換行時也等寬，至少填滿可見區，水平同步捲動才不會超出對側的範圍。
+        private func equalizeSizes() {
             let content = max(leftView.contentHeight, rightView.contentHeight)
             leftView.alignedContentHeight = content
             rightView.alignedContentHeight = content
             let height = max(content, leftScroll.contentSize.height, rightScroll.contentSize.height)
-            leftView.setMinimumHeight(height)
-            rightView.setMinimumHeight(height)
+            var width: CGFloat = 0
+            if !style.wrapsLines {
+                let visible = [leftScroll, rightScroll].map { $0.contentSize.width - $0.contentView.contentInsets.left }
+                width = max(leftView.contentWidth, rightView.contentWidth, visible.max() ?? 0)
+            }
+            leftView.setDocumentSize(minimum: NSSize(width: width, height: height))
+            rightView.setDocumentSize(minimum: NSSize(width: width, height: height))
         }
 
         @objc private func scrollResized(_ notification: Notification) {
-            equalizeHeights()
+            equalizeSizes()
         }
 
         @objc private func frameChanged(_ notification: Notification) {
@@ -231,7 +287,9 @@ public struct DiffEditorPair: NSViewRepresentable {
             guard !syncingScroll, let source = notification.object as? NSClipView else { return }
             let target = source === leftScroll.contentView ? rightScroll : leftScroll
             syncingScroll = true
-            target.contentView.scroll(to: NSPoint(x: target.contentView.bounds.origin.x, y: source.bounds.origin.y))
+            // 兩側行號欄寬度可能不同，水平位置要扣掉各自讓給行號欄的 inset
+            let x = source.bounds.origin.x + source.contentInsets.left - target.contentView.contentInsets.left
+            target.contentView.scroll(to: NSPoint(x: x, y: source.bounds.origin.y))
             target.reflectScrolledClipView(target.contentView)
             syncingScroll = false
             leftScroll.verticalRulerView?.needsDisplay = true
@@ -254,7 +312,7 @@ public struct DiffEditorPair: NSViewRepresentable {
 final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainActor NSTextStorageDelegate {
     enum Side { case left, right }
 
-    /// 「只顯示差異」摺疊起來的連續未變動行。整段排成一行，畫「⋯ 未變動 N 行」標示。
+    /// 「只顯示差異」摺疊起來的連續未變動行。整段排成一行，畫出「未變動 N 行」的標示。
     struct Fold: Hashable {
         var hidden: NSRange
         let lineCount: Int
@@ -268,6 +326,10 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
     // TextKit 1 不套用第一段的 paragraphSpacingBefore，第一行的補白改由 textContainerOrigin 往下推。
     private var topPadding: CGFloat = 0
     var onCommandClick: ((DiffTextView, Int) -> Bool)?
+    var strings = Strings.for(.default)
+    var style = EditorStyle.default {
+        didSet { if style != oldValue { applyStyle() } }
+    }
     var onRevealFold: ((Fold) -> Void)?
     /// 整份內容被取代時呼叫（對調、清空、拖放、全選後貼上）。
     var onTextReplaced: (() -> Void)?
@@ -303,18 +365,43 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
         writingToolsBehavior = .none
         inlinePredictionType = .no
 
-        font = Theme.font
         textColor = Theme.text
         backgroundColor = Theme.background
-        defaultParagraphStyle = Theme.paragraphStyle
-        typingAttributes = Theme.textAttributes
         textContainerInset = NSSize(width: 8, height: 8)
         isVerticallyResizable = true
-        isHorizontallyResizable = false
-        autoresizingMask = [.width]
         minSize = .zero
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        applyStyle()
         updateDragTypeRegistration()
+    }
+
+    /// 套用字級與換行方式。段落樣式會重設，補白要由呼叫端重新對齊後補回。
+    private func applyStyle() {
+        font = style.font
+        defaultParagraphStyle = style.paragraphStyle
+        typingAttributes = style.textAttributes
+        if let storage = textStorage, storage.length > 0 {
+            let all = NSRange(location: 0, length: storage.length)
+            storage.beginEditing()
+            for (key, value) in style.textAttributes where key != .foregroundColor {
+                storage.addAttribute(key, value: value, range: all)
+            }
+            storage.endEditing()
+        }
+        guard let container = textContainer else { return }
+        if style.wrapsLines {
+            isHorizontallyResizable = false
+            autoresizingMask = [.width]
+            container.widthTracksTextView = true
+            if let width = enclosingScrollView?.contentSize.width { frame.size.width = width }
+        } else {
+            // 寬度由 Coordinator 依兩側內容統一設定（setDocumentSize），不讓 NSTextView 自己伸縮，
+            // 因為它會在 scroll view 調整版面時自行重設最小尺寸。
+            container.widthTracksTextView = false
+            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            isHorizontallyResizable = false
+            autoresizingMask = []
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -398,7 +485,7 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
             try loadDroppedFiles(urls)
         } catch {
             let alert = NSAlert()
-            alert.messageText = error.message
+            alert.messageText = error.message(strings)
             if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
         }
         return true
@@ -423,13 +510,19 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
         return layout.usedRect(for: container).height + topPadding + textContainerInset.height * 2
     }
 
+    var contentWidth: CGFloat {
+        guard let layout = layoutManager, let container = textContainer else { return 0 }
+        layout.ensureLayout(for: container)
+        return layout.usedRect(for: container).width + textContainerInset.width * 2
+    }
+
     /// 以可 undo 的方式整段取代文字，並清掉舊比對留下的樣式。
     func replaceText(with text: String) {
         guard let storage = textStorage else { return }
         let full = NSRange(location: 0, length: storage.length)
         guard shouldChangeText(in: full, replacementString: text) else { return }
         storage.replaceCharacters(in: full, with: text)
-        storage.setAttributes(Theme.textAttributes, range: NSRange(location: 0, length: storage.length))
+        storage.setAttributes(style.textAttributes, range: NSRange(location: 0, length: storage.length))
         didChangeText()
         lineHighlights = []
         paddingByLocation = [:]
@@ -462,7 +555,7 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
     func resetPadding(lines: [NSRange]) -> [CGFloat] {
         guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return [] }
         storage.beginEditing()
-        storage.addAttribute(.paragraphStyle, value: Theme.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.paragraphStyle, value: style.paragraphStyle, range: NSRange(location: 0, length: storage.length))
         storage.endEditing()
         paddingByLocation = [:]
         topPadding = 0
@@ -481,12 +574,12 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
         topPadding = lines.isEmpty ? 0 : padding[0]
         invalidateTextContainerOrigin()
         for (i, line) in lines.enumerated().dropFirst() where padding[i] > 0 {
-            let style = Theme.paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
-            style.paragraphSpacingBefore = padding[i]
+            let paragraph = style.paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
+            paragraph.paragraphSpacingBefore = padding[i]
             // 摺疊區排成同一段，段落樣式中途改變會被拆成兩列，所以補白要套在整個摺疊區上。
             var range = ns.lineRange(for: line)
             if let fold = fold(containing: line.location), fold.hidden.location == line.location { range = fold.hidden }
-            storage.addAttribute(.paragraphStyle, value: style, range: range)
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: range)
             paddingByLocation[line.location] = padding[i]
         }
         storage.endEditing()
@@ -558,7 +651,7 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
         return candidates.filter { NSMaxRange($0.hidden) <= length }.map { fold in
             let rect = foldFragmentRect(fold)
             let pad = paddingByLocation[fold.hidden.location] ?? 0
-            return (NSRect(x: 0, y: rect.minY + pad + textContainerOrigin.y, width: bounds.width, height: Theme.lineHeight), fold)
+            return (NSRect(x: 0, y: rect.minY + pad + textContainerOrigin.y, width: bounds.width, height: style.lineHeight), fold)
         }
     }
 
@@ -614,11 +707,11 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
         let location = layoutManager.characterIndexForGlyph(at: glyphRange.location)
         guard let fold = fold(containing: location) else { return false }
         let rect = lineFragmentRect.pointee
-        let style = textStorage?.attribute(.paragraphStyle, at: fold.hidden.location, effectiveRange: nil) as? NSParagraphStyle
+        let paragraph = textStorage?.attribute(.paragraphStyle, at: fold.hidden.location, effectiveRange: nil) as? NSParagraphStyle
         // 摺疊區只排成一列，但這一列不一定從摺疊區開頭排起（見 foldFragmentRect），所以補白不看起點。
-        let spacing = style?.paragraphSpacingBefore ?? 0
-        lineFragmentRect.pointee.size.height = Theme.lineHeight + spacing
-        lineFragmentUsedRect.pointee = NSRect(x: rect.minX, y: rect.minY + spacing, width: 0, height: Theme.lineHeight)
+        let spacing = paragraph?.paragraphSpacingBefore ?? 0
+        lineFragmentRect.pointee.size.height = style.lineHeight + spacing
+        lineFragmentUsedRect.pointee = NSRect(x: rect.minX, y: rect.minY + spacing, width: 0, height: style.lineHeight)
         return true
     }
 
@@ -671,8 +764,10 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
         }
     }
 
-    func setMinimumHeight(_ height: CGFloat) {
-        minSize = NSSize(width: 0, height: height)
+    /// 設定最小高度。width 大於 0 時（不換行）同時固定文字框寬度。
+    func setDocumentSize(minimum size: NSSize) {
+        minSize = NSSize(width: 0, height: size.height)
+        if size.width > 0 { frame.size.width = size.width }
         sizeToFit()
     }
 
@@ -684,11 +779,11 @@ final class DiffTextView: NSTextView, @MainActor NSLayoutManagerDelegate, @MainA
             color(for: kind).setFill()
             box.fill()
         }
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: Theme.lineNumber]
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: style.fontSize - 1), .foregroundColor: Theme.lineNumber]
         for (box, fold) in foldMarkerRects(in: rect) where box.intersects(rect) {
             Theme.hunkLine.setFill()
             box.fill()
-            let label = "⋯ 未變動 \(fold.lineCount) 行" as NSString
+            let label = strings.unchangedLines(fold.lineCount) as NSString
             let size = label.size(withAttributes: attributes)
             label.draw(at: NSPoint(x: textContainerOrigin.x + textContainer!.lineFragmentPadding, y: box.minY + (box.height - size.height) / 2),
                        withAttributes: attributes)

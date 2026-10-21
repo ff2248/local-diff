@@ -155,7 +155,11 @@ struct EditorTests {
         let para = "這是一段會被搬到最後面的長段落"
         let result = f.load("\(para)\n第二行內容\n第三行內容", "第二行內容\n第三行內容\n\(para)")
         let move = try! #require(result.moves.first)
-        let tip = f.left.textStorage!.attribute(.toolTip, at: result.leftLines[move.left].location, effectiveRange: nil) as? String
-        #expect(tip?.contains("新版第 3 行") == true)
+        func tip() -> String? {
+            f.left.textStorage!.attribute(.toolTip, at: result.leftLines[move.left].location, effectiveRange: nil) as? String
+        }
+        #expect(tip() == Strings.for(.english).movedTo(3))
+        f.coordinator.setLanguage(.traditionalChinese)
+        #expect(tip() == Strings.for(.traditionalChinese).movedTo(3))
     }
 }

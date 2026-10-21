@@ -35,10 +35,12 @@ import Testing
         #expect(throws: DroppedFile.LoadError.multipleFiles) { try DroppedFile.load([a, b]) }
     }
 
-    @Test func errorsExplainThemselvesInChinese() {
-        #expect(DroppedFile.LoadError.tooLarge.message == "檔案超過 5 MB，無法載入。")
-        #expect(DroppedFile.LoadError.notText.message == "這不是 UTF-8 文字檔，無法載入。")
-        #expect(DroppedFile.LoadError.multipleFiles.message == "一次只能拖放一個檔案。")
+    @Test func errorsFollowLanguage() {
+        let en = Strings.for(.english)
+        let zh = Strings.for(.traditionalChinese)
+        #expect(DroppedFile.LoadError.tooLarge.message(en) == "The file is larger than 5 MB.")
+        #expect(DroppedFile.LoadError.notText.message(zh) == "這不是 UTF-8 文字檔，無法載入。")
+        #expect(DroppedFile.LoadError.multipleFiles.message(zh) == "一次只能拖放一個檔案。")
     }
 
     @MainActor @Test func panesAcceptDroppedFiles() {

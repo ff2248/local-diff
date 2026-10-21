@@ -18,18 +18,18 @@ Publish a GitHub Release with a `vX.Y.Z` tag. `.github/workflows/release.yml` th
 | Target | Role |
 |---|---|
 | `DiffCore` | Pure Swift diff engine: `computeDiff`, statistics, `alignmentPadding`. No AppKit. |
-| `DiffEditor` | TextKit 1 `NSTextView` pair wrapped for SwiftUI: highlights, alignment, line-number ruler, theme |
-| `LocalDiffApp` | Window, toolbar, statistics bar, debounced background diff |
+| `DiffEditor` | TextKit 1 `NSTextView` pair wrapped for SwiftUI: highlights, alignment, line-number ruler, theme, `EditorStyle`, UI strings |
+| `LocalDiffApp` | Window, toolbar, statistics bar, settings, debounced background diff |
 
 `DiffCore` reports every text position as a UTF-16 `NSRange`.
 
 ## Hard constraints
 
 - No network access: the entitlements file holds only `com.apple.security.app-sandbox`, and there are no third-party dependencies.
-- Nothing is written to disk: no `UserDefaults` or `@AppStorage` for text, and window restoration stays disabled.
+- Text is never written to disk: only preferences go to `UserDefaults` (`Sources/LocalDiffApp/Settings.swift`), never pane contents, and window restoration stays disabled.
 - Text copied out of a pane must equal what was pasted. Alignment uses paragraph spacing and `textContainerOrigin`, never inserted characters. Automatic substitutions, Writing Tools and inline predictions stay off.
 - Results for typical documents (under 2,000 lines total) must not change when optimizing. Check against the existing `DiffCore` tests.
-- UI copy is Traditional Chinese (Taiwan).
+- Every user-visible string lives in `Strings` (`Sources/DiffEditor/Localization.swift`). English is the default. To add a language, add an `AppLanguage` case and a full `Strings` value; a missing string fails to compile.
 
 ## Editor gotchas
 

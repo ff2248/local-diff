@@ -32,7 +32,7 @@ struct CollapseEditorTests {
         #expect(f.right.folds.map(\.lineCount) == [12, 11])
         let tops = result.leftLines.map { f.top(f.left, $0) }
         #expect(Set(tops[1..<12]).count == 1)
-        #expect(tops[12] - tops[0] == Theme.lineHeight)
+        #expect(tops[12] - tops[0] == EditorStyle.default.lineHeight)
         #expect(f.misalignedRows(result) == 0)
     }
 
@@ -48,7 +48,7 @@ struct CollapseEditorTests {
             let marker = try! #require(view.foldMarkerRects().first?.rect)
             let lineNumbers = view === f.left ? result.leftLines : result.rightLines
             let before = lineNumbers.lastIndex { $0.location < fold.hidden.location }!
-            #expect(f.top(view, lineNumbers[before]) + Theme.lineHeight == marker.minY)
+            #expect(f.top(view, lineNumbers[before]) + EditorStyle.default.lineHeight == marker.minY)
             #expect(marker.maxY == f.top(view, lineNumbers[before + fold.lineCount + 1]))
         }
     }
@@ -228,6 +228,6 @@ struct CollapseEditorTests {
         f.coordinator.setCollapseUnchanged(false)
         #expect(f.left.folds.isEmpty && f.right.folds.isEmpty)
         let tops = result.leftLines.map { f.top(f.left, $0) }
-        #expect(zip(tops, tops.dropFirst()).allSatisfy { $1 - $0 == Theme.lineHeight })
+        #expect(zip(tops, tops.dropFirst()).allSatisfy { $1 - $0 == EditorStyle.default.lineHeight })
     }
 }

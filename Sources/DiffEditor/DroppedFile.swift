@@ -7,11 +7,11 @@ enum DroppedFile {
     enum LoadError: Error, Equatable {
         case multipleFiles, tooLarge, notText
 
-        var message: String {
+        func message(_ strings: Strings) -> String {
             switch self {
-            case .multipleFiles: "一次只能拖放一個檔案。"
-            case .tooLarge: "檔案超過 5 MB，無法載入。"
-            case .notText: "這不是 UTF-8 文字檔，無法載入。"
+            case .multipleFiles: strings.dropMultipleFiles
+            case .tooLarge: strings.dropTooLarge
+            case .notText: strings.dropNotText
             }
         }
     }

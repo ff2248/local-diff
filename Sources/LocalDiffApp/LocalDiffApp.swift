@@ -8,5 +8,9 @@ struct LocalDiffApp: App {
         }
         .defaultSize(width: 1400, height: 900)
         .restorationBehavior(.disabled)
+
+        Settings {
+            SettingsView()
+        }
     }
 }

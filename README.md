@@ -32,29 +32,30 @@ People who compare long text, such as prompt revisions, contracts or articles, a
 - **Character-level highlights**: Chinese and other ideographs are compared one character at a time, and Latin text one word at a time.
 - **Moved paragraph detection**: a line that moved elsewhere is shown in purple instead of as a deletion plus an insertion. Hover it to see where it went.
 - **Aligned panes**: matching lines stay side by side, with shaded space opposite lines that exist on only one side. Both panes scroll together.
-- **Show only changes**: optionally collapse unchanged lines, keeping three lines of context around each change. Click a collapsed block to expand it. Both panes stay editable.
+- **Show only changes**: optionally collapse unchanged lines, keeping a few lines of context around each change (three by default). Click a collapsed block to expand it. Both panes stay editable.
 - **Drag and drop**: drop a UTF-8 text file onto either pane to load it, up to 5 MB.
 - **Ignore options**: whitespace, blank lines, letter case, and full-width versus half-width characters (for example `，` and `,`).
 - **Statistics** for each side and for the change between them, described in [Statistics](#statistics).
-- **GitHub diff colors** in light and dark mode, following the system appearance.
-- **Private by design**: no network access, nothing written to disk, and copied text is exactly what you pasted. See [Privacy](#privacy).
+- **GitHub diff colors** in light and dark mode, following the system or the appearance you pick in Settings.
+- **English and Traditional Chinese** interface, switchable in Settings.
+- **Private by design**: no network access, your text is never written to disk, and copied text is exactly what you pasted. See [Privacy](#privacy).
 
 ## Usage
 
-The interface is in Traditional Chinese. Paste or type into the left pane (**舊版**, old) and the right pane (**新版**, new), or drop a text file onto either pane.
+Paste or type into the left pane (**Before**) and the right pane (**After**), or drop a text file onto either pane.
 
 | Control | Action |
 |---|---|
-| **只顯示差異** | Collapse unchanged lines (off by default) |
-| **忽略空白** | Ignore whitespace differences |
-| **忽略空行** | Ignore blank lines |
-| **忽略大小寫** | Ignore letter case |
-| **忽略全形／半形** | Treat full-width and half-width characters as equal |
-| **對調** | Swap the two panes |
-| **清空** | Clear both panes |
-| Click **⋯ 未變動 N 行** | Expand that collapsed block. Moving the cursor into a collapsed block also expands it. |
+| **Show Only Changes** | Collapse unchanged lines |
+| **Ignore Whitespace** | Ignore whitespace differences |
+| **Ignore Blank Lines** | Ignore blank lines |
+| **Ignore Case** | Ignore letter case |
+| **Ignore Full/Half Width** | Treat full-width and half-width characters as equal |
+| **Swap** | Swap the two panes |
+| **Clear** | Clear both panes |
+| Click **⋯ N unchanged lines** | Expand that collapsed block. Moving the cursor into a collapsed block also expands it. |
 | <kbd>⌘</kbd>-click a purple line | Jump to where the moved line is in the other pane |
-| <kbd>⌘</kbd><kbd>Z</kbd> | Undo, including **對調**, **清空** and a dropped file |
+| <kbd>⌘</kbd><kbd>Z</kbd> | Undo, including **Swap**, **Clear** and a dropped file |
 
 A dropped file replaces the content of that pane. The app rejects folders, more than one file at a time, files over 5 MB, and files that are not UTF-8 text. A UTF-8 byte order mark is removed.
 
@@ -64,12 +65,25 @@ The bar at the bottom shows these values:
 
 | Label | Meaning |
 |---|---|
-| **字元** | Characters, not counting line breaks. An emoji counts as one character. |
-| **中文字** | Chinese characters (ideographs), not counting full-width punctuation |
-| **行** | Lines. A trailing line break does not add a line. |
-| **估計 token** | A rough token estimate: Chinese characters plus a quarter of the other non-space characters. Use it to compare the two versions, not to predict billing. |
-| **新增** / **刪除** | Characters added on the right and removed from the left |
-| **相似度** | Share of characters on both sides that are unchanged |
+| **Characters** | Characters, not counting line breaks. An emoji counts as one character. |
+| **CJK** | Chinese characters (ideographs), not counting full-width punctuation |
+| **Lines** | Lines. A trailing line break does not add a line. |
+| **Est. Tokens** | A rough token estimate: Chinese characters plus a quarter of the other non-space characters. Use it to compare the two versions, not to predict billing. |
+| **Added** / **Removed** | Characters added on the right and removed from the left |
+| **Similarity** | Share of characters on both sides that are unchanged |
+
+### Settings
+
+Open **LocalDiff → Settings** (<kbd>⌘</kbd><kbd>,</kbd>). Changes apply right away, except **On Launch**, which sets the toolbar options each time the app opens.
+
+| Setting | Values |
+|---|---|
+| **Language** | English (default) or 繁體中文 |
+| **Appearance** | System (default), Light or Dark |
+| **Font Size** | 10 to 24 pt, 13 by default. Line height scales with it. |
+| **Wrap Long Lines** | On by default. When off, long lines scroll sideways and both panes scroll together. |
+| **Context Lines Around Changes** | 0 to 10, 3 by default. Used by **Show Only Changes**. |
+| **On Launch** | Whether **Show Only Changes** and each ignore option start on. All off by default. |
 
 ## Install
 
@@ -125,12 +139,12 @@ You need to do this once for each new version.
 | Homebrew | `brew uninstall --cask --zap localdiff` |
 | DMG or source | `rm -rf /Applications/LocalDiff.app` |
 
-The app keeps no settings or text, only the empty sandbox folders macOS creates for it: `~/Library/Containers/io.github.ff2248.localdiff` and `~/Library/Application Scripts/io.github.ff2248.localdiff`. `--zap` removes them. Without Homebrew, delete them yourself if you like.
+The app never saves your text. Its settings live in the sandbox folders macOS creates for it: `~/Library/Containers/io.github.ff2248.localdiff` and `~/Library/Application Scripts/io.github.ff2248.localdiff`. `--zap` removes them. Without Homebrew, delete them yourself if you like.
 
 ## Privacy
 
 - The app runs in the App Sandbox with no other entitlements, so it cannot open network connections, and it can read only a file you drop onto it. Check it with `codesign -d --entitlements - /Applications/LocalDiff.app`.
-- Text stays in memory only. Nothing is saved, and the window is not restored after you quit.
+- Text stays in memory only. It is never saved, and the window is not restored after you quit. Only your [settings](#settings) are stored, inside the app's sandbox folder.
 - Writing Tools, inline predictions, spell checking and automatic text substitutions (smart quotes, dashes, text replacement) are turned off, so copying from a pane returns exactly what you pasted.
 
 ## How it works
