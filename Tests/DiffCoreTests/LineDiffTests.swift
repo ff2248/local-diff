@@ -79,11 +79,20 @@ private func diff(_ l: String, _ r: String, _ o: CompareOptions = CompareOptions
                        DiffRow(left: nil, right: 2, kind: .inserted), DiffRow(left: 4, right: 3, kind: .unchanged)])
 }
 
-@Test func tenThousandUnrelatedLinesAreFast() {
+@Test func largeUnrelatedInputsSkipTheLineDiff() {
     let l = (0..<10_000).map { "舊版第 \($0) 行" }.joined(separator: "\n")
     let r = (0..<10_000).map { "new line \($0)" }.joined(separator: "\n")
-    let elapsed = ContinuousClock().measure { _ = diff(l, r) }
-    #expect(elapsed < .seconds(1))
+    let work = DiffWork()
+    _ = computeDiff(left: l, right: r, options: CompareOptions(), work: work)
+    #expect(work.linesDiffed == 0)
+    // 兩邊完全配不起來時配對起點不會前進，沒有配對範圍上限就是 1 萬 × 1 萬次
+    #expect(work.similarityChecks <= 10_000 * pairingWindow)
+}
+
+@Test func smallInputsDiffEveryLine() {
+    let work = DiffWork()
+    _ = computeDiff(left: "a\nx\nb", right: "a\nb\nz", options: CompareOptions(), work: work)
+    #expect(work.linesDiffed == 6)
 }
 
 @Test func smallInputsKeepOriginalMatching() {

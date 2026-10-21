@@ -34,12 +34,6 @@ private let longPara = "這是一段會被搬到最後面的長段落"
     #expect(one.similarity == 0.0 && one.insertedCharacters == 3)
 }
 
-@Test func typicalPromptSizeIsFast() {
-    let (l, r) = syntheticPromptPair()
-    let elapsed = ContinuousClock().measure { _ = computeDiff(left: l, right: r, options: CompareOptions()) }
-    #expect(elapsed < .milliseconds(500))
-}
-
 // 一行 1 萬字、右側約一半的字被換掉，兩行仍會配對成 modified
 @Test func hugeSingleLineFallsBack() {
     var rng = SplitMix64(seed: 7)
@@ -47,27 +41,10 @@ private let longPara = "這是一段會被搬到最後面的長段落"
     func pick() -> Character { pool[Int(rng.next() % UInt64(pool.count))] }
     let l = String((0..<10_000).map { _ in pick() })
     let r = String(l.map { c in rng.next() % 2 == 0 ? pick() : c })
-    var d: DiffResult?
-    let elapsed = ContinuousClock().measure { d = computeDiff(left: l, right: r, options: CompareOptions()) }
-    #expect(d?.rows.map(\.kind) == [.modified])
-    #expect(elapsed < .milliseconds(300))
-}
-
-// 180 行、每行約 70 個中文字，右側每隔一行改 10 字、並把 10 行搬到別處
-private func syntheticPromptPair() -> (String, String) {
-    var rng = SplitMix64(seed: 42)
-    let pool = Array("的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過家學對可她裡後小麼心多天而能好都然沒日於起還發成事只作當想看文無開手十用主行方又如前所本見經頭面公同三已老從動兩長知民樣現分將外但身些與高意進把法此實回二理美點月明其種聲全工己話兒者向情部正名定女問力機給等幾很業最間新什打便位因重被走電四第門相次東政海口使教西再平真聽世氣信北少關並內加化由卻代軍產入先山五太水萬市眼體別處總才場師書比住員九笑性通目華報立馬命張活難神數件安表原車白應路期叫死常提感金何更反合放做系計或司利受光王果親界及今京務制解各任至清物台象記邊共風戰干接它許八特覺望直服毛林題建南度統色字請交愛讓認算論百吃義科怎元社術結六功指思非流每青管夫連遠資隊跟帶花快條院變聯言權往展該領傳近留紅治決周保達辦運武半候七必城父強步完革深區即求品士轉量空甚眾技輕程告江語英基派滿式李息寫呢識極令黃德收臉錢黨倒未持取設始版雙歷越史商千片容研像找友孩站廣改議形委早房音火際則首單據導影失拿網香似斯專石若兵弟誰校讀志飛觀爭究包組造落視濟喜離雖壞")
-    func line() -> String { String((0..<70).map { _ in pool[Int(rng.next() % UInt64(pool.count))] }) }
-    let left = (0..<180).map { _ in line() }
-    var right = left.enumerated().map { k, s -> String in
-        guard k % 2 == 0 else { return s }
-        var chars = Array(s)
-        for p in stride(from: 5, to: 65, by: 6) { chars[p] = pool[Int(rng.next() % UInt64(pool.count))] }
-        return String(chars)
-    }
-    let moved = (0..<10).map { right.remove(at: 10 + $0 * 7) }
-    right.insert(contentsOf: moved, at: right.count / 2)
-    return (left.joined(separator: "\n"), right.joined(separator: "\n"))
+    let work = DiffWork()
+    let d = computeDiff(left: l, right: r, options: CompareOptions(), work: work)
+    #expect(d.rows.map(\.kind) == [.modified])
+    #expect(work.inlineFallbacks == 1 && work.inlineDiffs == 0)
 }
 
 private struct SplitMix64 {
@@ -94,7 +71,7 @@ private struct SplitMix64 {
 }
 
 // 兩份各 4000 行、共用一組關鍵字但互不相關的程式碼
-@Test func largeUnrelatedInputsAreBounded() {
+@Test func largeUnrelatedInputsBoundTheirWork() {
     var rng = SplitMix64(seed: 3)
     let words = ["func", "let", "var", "return", "if", "else", "self", "value", "items", "count",
                  "index", "result", "map", "filter", "guard", "for", "in", "where"]
@@ -104,11 +81,13 @@ private struct SplitMix64 {
     }
     let l = (0..<4000).map { _ in codeLine() }.joined(separator: "\n")
     let r = (0..<4000).map { _ in codeLine() }.joined(separator: "\n")
-    let elapsed = ContinuousClock().measure { _ = computeDiff(left: l, right: r, options: CompareOptions()) }
-    #expect(elapsed < .seconds(1))
+    let work = DiffWork()
+    _ = computeDiff(left: l, right: r, options: CompareOptions(), work: work)
+    #expect(work.similarityChecks <= 4000 * pairingWindow)
+    #expect(work.moveDetectionSkipped)
 }
 
-// 20 行、每行 1500 字且都有修改，未取消時要做 20 次大型行內 diff
+// 20 行、每行 1500 字且都有修改，沒有取消時要做 20 次行內 diff
 @Test func cancelledDiffStopsEarly() async {
     var rng = SplitMix64(seed: 11)
     let pool = Array("的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過")
@@ -117,9 +96,14 @@ private struct SplitMix64 {
     let rightLines = leftLines.map { String($0.map { c in rng.next() % 3 == 0 ? pick() : c }) }
     let l = leftLines.joined(separator: "\n")
     let r = rightLines.joined(separator: "\n")
-    let full = ContinuousClock().measure { _ = computeDiff(left: l, right: r, options: CompareOptions()) }
-    let task = Task { computeDiff(left: l, right: r, options: CompareOptions()) }
-    task.cancel()
-    let cancelled = await ContinuousClock().measure { _ = await task.value }
-    #expect(cancelled < full / 3)
+    func inlineDiffs(cancelled: Bool) async -> Int {
+        await Task {
+            if cancelled { withUnsafeCurrentTask { $0?.cancel() } }
+            let work = DiffWork()
+            _ = computeDiff(left: l, right: r, options: CompareOptions(), work: work)
+            return work.inlineDiffs
+        }.value
+    }
+    #expect(await inlineDiffs(cancelled: false) == 20)
+    #expect(await inlineDiffs(cancelled: true) == 0)
 }

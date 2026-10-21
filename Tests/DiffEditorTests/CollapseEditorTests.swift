@@ -204,12 +204,14 @@ struct CollapseEditorTests {
         let lines = (0..<6_000).map { "line \($0) text" }
         let changed = lines.enumerated().map { $0 % 10 == 0 ? "changed \($0)" : $1 }
         let f = EditorFixture()
-        f.load(lines.joined(separator: "\n"), changed.joined(separator: "\n"))
-        let enable = ContinuousClock().measure { f.coordinator.setCollapseUnchanged(true) }
+        let clock = ContinuousClock()
+        // 和不摺疊時載入同一份文件比，避免受機器快慢影響。查找摺疊區退回線性搜尋時約 32 倍，現在約 0.8 倍。
+        let load = clock.measure { f.load(lines.joined(separator: "\n"), changed.joined(separator: "\n")) }
+        let enable = clock.measure { f.coordinator.setCollapseUnchanged(true) }
         #expect(f.left.folds.count == 600)
-        let reveal = ContinuousClock().measure { f.coordinator.reveal(f.left.folds[300]) }
-        #expect(enable < .seconds(1))
-        #expect(reveal < .seconds(1))
+        let reveal = clock.measure { f.coordinator.reveal(f.left.folds[300]) }
+        #expect(enable < load * 4)
+        #expect(reveal < load * 4)
     }
 
     @Test func droppedFileForgetsExpandedBlocks() throws {

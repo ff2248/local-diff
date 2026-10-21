@@ -41,9 +41,13 @@ let sharedLineFilterThreshold = 2_000
 
 /// 所在的 Task 被取消時會提早結束，這時回傳的結果不完整，呼叫端應該丟棄。
 public func computeDiff(left: String, right: String, options: CompareOptions) -> DiffResult {
+    computeDiff(left: left, right: right, options: options, work: nil)
+}
+
+func computeDiff(left: String, right: String, options: CompareOptions, work: DiffWork?) -> DiffResult {
     let l = Side(text: left, options: options)
     let r = Side(text: right, options: options)
-    let (rows, moves) = detectMoves(alignRows(l, r, options), l, r)
+    let (rows, moves) = detectMoves(alignRows(l, r, options, work), l, r, work)
 
     var lh: [Highlight] = []
     var rh: [Highlight] = []
@@ -63,7 +67,7 @@ public func computeDiff(left: String, right: String, options: CompareOptions) ->
         case .modified:
             lh.append(Highlight(range: l.lines[row.left!], kind: .lineModified))
             rh.append(Highlight(range: r.lines[row.right!], kind: .lineModified))
-            let inline = inlineDiff(l, row.left!, r, row.right!, options)
+            let inline = inlineDiff(l, row.left!, r, row.right!, options, work)
             lh += inline.deleted.map { Highlight(range: $0, kind: .textDeleted) }
             rh += inline.inserted.map { Highlight(range: $0, kind: .textInserted) }
             deletedCount += inline.deletedCount
@@ -75,7 +79,7 @@ public func computeDiff(left: String, right: String, options: CompareOptions) ->
     for move in moves where !Task.isCancelled {
         lh.append(Highlight(range: l.lines[move.left], kind: .lineMoved))
         rh.append(Highlight(range: r.lines[move.right], kind: .lineMoved))
-        let inline = inlineDiff(l, move.left, r, move.right, options)
+        let inline = inlineDiff(l, move.left, r, move.right, options, work)
         lh += inline.deleted.map { Highlight(range: $0, kind: .textDeleted) }
         rh += inline.inserted.map { Highlight(range: $0, kind: .textInserted) }
         deletedCount += inline.deletedCount
@@ -114,7 +118,7 @@ struct Side {
     func line(_ i: Int) -> String { text.substring(with: lines[i]) }
 }
 
-private func alignRows(_ l: Side, _ r: Side, _ options: CompareOptions) -> [DiffRow] {
+private func alignRows(_ l: Side, _ r: Side, _ options: CompareOptions, _ work: DiffWork?) -> [DiffRow] {
     func participates(_ key: String) -> Bool {
         !options.ignoreBlankLines || !key.allSatisfy(\.isWhitespace)
     }
@@ -132,6 +136,7 @@ private func alignRows(_ l: Side, _ r: Side, _ options: CompareOptions) -> [Diff
         lShared = lShared.filter { rKeySet.contains(lKeys[$0]) }
         rShared = rShared.filter { lKeySet.contains(rKeys[$0]) }
     }
+    work?.linesDiffed += lShared.count + rShared.count
     var removed = Set(lKeys.indices).subtracting(lShared)
     var inserted = Set(rKeys.indices).subtracting(rShared)
     for change in rShared.map({ rKeys[$0] }).difference(from: lShared.map { lKeys[$0] }) {
@@ -173,20 +178,22 @@ private func alignRows(_ l: Side, _ r: Side, _ options: CompareOptions) -> [Diff
             i += 1
             j += 1
         } else {
-            pairHunk(dels, ins, l, r).forEach(emit)
+            pairHunk(dels, ins, l, r, work).forEach(emit)
         }
     }
     flushBlanks(left: nil, right: nil)
     return rows
 }
 
-private func pairHunk(_ dels: [Int], _ ins: [Int], _ l: Side, _ r: Side) -> [DiffRow] {
+private func pairHunk(_ dels: [Int], _ ins: [Int], _ l: Side, _ r: Side, _ work: DiffWork?) -> [DiffRow] {
     var rows: [DiffRow] = []
     var from = 0
     for d in dels {
         if Task.isCancelled { break }
         var best: (index: Int, score: Double)?
-        for k in from..<min(ins.count, from + pairingWindow) {
+        let window = from..<min(ins.count, from + pairingWindow)
+        work?.similarityChecks += window.count
+        for k in window {
             let score = l.profiles[d].dice(r.profiles[ins[k]])
             if score >= pairingThreshold, score > (best?.score ?? -1) { best = (k, score) }
         }
@@ -209,13 +216,15 @@ struct InlineDiff {
     let insertedCount: Int
 }
 
-func inlineDiff(_ l: Side, _ li: Int, _ r: Side, _ ri: Int, _ options: CompareOptions) -> InlineDiff {
+func inlineDiff(_ l: Side, _ li: Int, _ r: Side, _ ri: Int, _ options: CompareOptions, _ work: DiffWork?) -> InlineDiff {
     let lt = tokenize(l.line(li), options)
     let rt = tokenize(r.line(ri), options)
     if lt.count * rt.count > inlineTokenLimit {
+        work?.inlineFallbacks += 1
         return InlineDiff(deleted: [l.lines[li]], inserted: [r.lines[ri]],
                           deletedCount: l.line(li).count, insertedCount: r.line(ri).count)
     }
+    work?.inlineDiffs += 1
     let diff = rt.map(\.key).difference(from: lt.map(\.key))
     var lChanged = Array(repeating: false, count: lt.count)
     var rChanged = Array(repeating: false, count: rt.count)
