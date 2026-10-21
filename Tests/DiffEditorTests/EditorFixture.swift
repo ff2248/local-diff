@@ -55,8 +55,12 @@ final class EditorFixture {
         stack.cacheDisplay(in: stack.bounds, to: rep)
     }
 
-    /// 某行第一個字在文字框座標系中的頂端位置。
+    /// 某行第一個字在文字框座標系中的頂端位置。摺疊起來的行以摺疊標示的位置為準。
     func top(_ view: NSTextView, _ line: NSRange) -> CGFloat {
+        if let diffView = view as? DiffTextView,
+           let marker = diffView.foldMarkerRects().first(where: { NSLocationInRange(line.location, $0.fold.hidden) }) {
+            return marker.rect.minY
+        }
         let layout = view.layoutManager!
         let glyphs = layout.glyphRange(forCharacterRange: line, actualCharacterRange: nil)
         return layout.lineFragmentUsedRect(forGlyphAt: glyphs.location, effectiveRange: nil).minY + view.textContainerOrigin.y
@@ -68,4 +72,12 @@ final class EditorFixture {
             return abs(top(left, result.leftLines[l]) - top(right, result.rightLines[r])) > 0.5
         }.count
     }
+}
+
+func temporaryFile(_ bytes: [UInt8], name: String = "sample.txt") -> URL {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent(name)
+    try! Data(bytes).write(to: url)
+    return url
 }

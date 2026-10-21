@@ -16,6 +16,8 @@ enum Theme {
     static let insertedNumber = color(light: 0xaceebbff, dark: 0x3fb9504d)
     static let movedLine = color(light: 0xfbefffff, dark: 0xab7df826)
     static let movedNumber = color(light: 0x8250df26, dark: 0xab7df84d)
+    static let hunkLine = color(light: 0xddf4ffff, dark: 0x388bfd1a)
+    static let hunkNumber = color(light: 0xb6e3ffff, dark: 0x0c2d6bff)
 
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let lineHeight: CGFloat = 20

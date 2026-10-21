@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var left = ""
     @State private var right = ""
     @State private var options = CompareOptions()
+    @State private var collapseUnchanged = false
     @State private var comparison: Comparison?
     @State private var generation = 0
 
@@ -24,11 +25,14 @@ struct ContentView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             Divider()
-            DiffEditorPair(left: $left, right: $right, comparison: comparison)
+            DiffEditorPair(left: $left, right: $right, comparison: comparison, collapseUnchanged: collapseUnchanged)
             Divider()
             StatsBar(stats: comparison?.result.stats)
         }
         .toolbar {
+            ToolbarItemGroup {
+                Toggle("只顯示差異", isOn: $collapseUnchanged)
+            }
             ToolbarItemGroup {
                 Toggle("忽略空白", isOn: $options.ignoreWhitespace)
                 Toggle("忽略空行", isOn: $options.ignoreBlankLines)

@@ -31,6 +31,8 @@ final class LineNumberRuler: NSRulerView {
             numberColor(for: kind, side: textView.side).setFill()
             band(convert(box, from: textView)).fill()
         }
+        Theme.hunkNumber.setFill()
+        for marker in textView.foldMarkerRects(in: textView.visibleRect) { band(convert(marker.rect, from: textView)).fill() }
         for (number, y) in textView.lineNumberPositions(in: textView.visibleRect) {
             let label = String(number) as NSString
             let size = label.size(withAttributes: attributes)
