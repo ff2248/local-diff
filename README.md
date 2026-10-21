@@ -91,6 +91,7 @@ Open **LocalDiff → Settings** (<kbd>⌘</kbd><kbd>,</kbd>). Changes apply righ
 
 ```bash
 brew tap ff2248/localdiff
+brew trust ff2248/localdiff   # Homebrew loads third-party taps only after you trust them
 brew install --cask localdiff
 ```
 
